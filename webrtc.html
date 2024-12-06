@@ -1,71 +1,64 @@
-<script>
-/* eslint-env browser */
-
-let pc = new RTCPeerConnection({                         
-  iceServers: [
-    {                      
-      urls: 'stun:stun.l.google.com:19302'
-    }                    
-  ]                                             
-}) 
-let log = msg => {
-  document.getElementById('div').innerHTML += msg + '<br>'
-}
-
-pc.ontrack = function (event) {
-  var el = document.createElement(event.track.kind)
-  el.srcObject = event.streams[0]
-  el.autoplay = true
-  el.controls = true
-
-  document.getElementById('remoteVideos').appendChild(el)
-}
-
-pc.oniceconnectionstatechange = e => log(pc.iceConnectionState)
-pc.onicecandidate = event => {
-  if (event.candidate === null) {
-    document.getElementById('localSessionDescription').value = btoa(JSON.stringify(pc.localDescription))
-  }
-}
-
-// Offer to receive 1 audio, and 1 video track
-pc.addTransceiver('video', {'direction': 'sendrecv'})
-pc.addTransceiver('audio', {'direction': 'sendrecv'})
-
-pc.createOffer().then(d => pc.setLocalDescription(d)).catch(log)
-
-window.startSession = () => {
-  let sd = document.getElementById('remoteSessionDescription').value
-  if (sd === '') {
-    return alert('Session Description must not be empty')
-  }
-
-  try {
-    pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(atob(sd))))
-  } catch (e) {
-    alert(e)
-  }
-}
-</script>
-
 <style>
-  textarea {
-    width: 500px;
-    min-height: 75px;
+  * {
+    margin: 0;
+    width: 100%;
+    height: 100%;
   }
 </style>
 
-Browser base64 Session Description<br />
-<textarea id="localSessionDescription" readonly="true"></textarea> <br />
+<div id="remoteVideos" style="position: absolute;"></div>
+<div id="logs" style="position: absolute;"></div>
 
-WebRTC server base64 Session Description<br />
-<textarea id="remoteSessionDescription"> </textarea> <br/>
-<button onclick="window.startSession()"> Start Session </button><br />
+<script>
+  /* eslint-env browser */
+  let pc = new RTCPeerConnection({
+    iceServers: [
+      {
+        urls: 'stun:stun.l.google.com:19302'
+      }
+    ]
+  })
+  var log = msg => {
+    document.getElementById('logs').innerHTML += msg + '<br>'
+  }
 
-<br />
+  log("Requesting user video and audio");
+  navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then(stream => {
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      log("Creating a local description");
+      pc.createOffer().then(d => pc.setLocalDescription(d)).catch(log)
+    }).catch(log)
 
-Video<br />
-<div id="remoteVideos"></div> <br />
+  pc.oniceconnectionstatechange = e => log(pc.iceConnectionState)
+  pc.onicecandidate = async event => {
+    if (event.candidate === null) {
+      log("Sending offer")
+      let desc = btoa(JSON.stringify(pc.localDescription));
+      let response = await fetch("/local", {
+        method: "POST",
+        body: desc
+      });
+      let offer = await response.text();
+      log("Setting remote description for offer response");
+      try {
+        pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(atob(offer))))
+        log("Connected successfully");
+      } catch (e) {
+        alert(e)
+      }
+    }
+  }
+  pc.ontrack = function (event) {
+    var el = document.createElement(event.track.kind)
+    el.srcObject = event.streams[0]
+    if (event.track.kind == "audio") {
+      el.hidden = true;
+    }
+    el.autoplay = true;
+    el.controls = false;
 
-Logs<br />
-<div id="div"></div>
+
+    document.getElementById('remoteVideos').appendChild(el)
+  }
+</script>
